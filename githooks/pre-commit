@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Blocks commits containing anything that looks like a credential.
+# Installed via: git config core.hooksPath githooks
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks not installed (brew install gitleaks)" >&2
+  exit 1   # fail closed: no scanner means no commit
+fi
+
+# `gitleaks protect` was deprecated in v8.19; `git --staged` is the current form.
+if ! gitleaks git --staged --redact --no-banner .; then
+  echo "BLOCKED: possible secret in staged changes." >&2
+  echo "Move the value into the Keychain and reference it from a template." >&2
+  mkdir -p logs
+  echo "$(date -Iseconds) gitleaks blocked a commit" >> logs/hooks.log
+  exit 1
+fi

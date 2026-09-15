@@ -1,0 +1,8 @@
+{
+  "// NOTE": "Reference copy of ~/.gbrain/config.json. Embedding settings are PERMANENT once init runs.",
+  "database_url": "postgresql:///gbrain",
+  "embedding_provider": "ollama",
+  "embedding_model": "nomic-embed-text",
+  "embedding_dimensions": 768,
+  "ollama_base_url": "http://localhost:11434/v1"
+}

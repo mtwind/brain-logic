@@ -1,0 +1,71 @@
+# Custom gitleaks rules for the credential formats this machine actually holds.
+#
+# The default ruleset covers common cloud and SaaS formats but misses every
+# secret in play here. Verified before writing this file: a synthetic Telegram
+# bot token and a Tailscale auth key both scanned clean against the defaults.
+# A hook that runs is not a hook that catches your secrets.
+#
+# Precedence: gitleaks picks up (target path)/.gitleaks.toml automatically, and
+# the pre-commit hook scans with target `.`, so this file is live for every
+# commit with no flag needed.
+
+[extend]
+# Keep every default rule. This file adds to the ruleset, never replaces it --
+# dropping the defaults to add three rules would be a net loss.
+useDefault = true
+
+# --- Telegram bot token -------------------------------------------------
+# Format: <bot-id>:<35-char secret>, e.g. 8123456789:AAHc9v...
+# This is the first real secret the machine will hold (brain/telegram-token in
+# the Keychain, ${TELEGRAM_TOKEN} in config/openclaw.json.template).
+#
+# The {32,34} tail is what keeps the truncated illustrations in RUNBOOK.md and
+# decision-log.md (`1234567890:AAF...`) from matching. Deliberate: the docs
+# should be able to name the format without tripping the scanner.
+[[rules]]
+id = "telegram-bot-token"
+description = "Telegram bot token"
+regex = '''\b\d{5,16}:AA[A-Za-z0-9_-]{32,34}\b'''
+
+# --- restic repository password -----------------------------------------
+# No fixed format -- it is whatever passphrase was chosen -- so this matches the
+# dangerous shape instead: the password assigned as a literal. Values starting
+# with `$` are excluded so the correct pattern in cron/restic-backup.sh
+# (RESTIC_PASSWORD=$(security find-generic-password ...)) does not self-flag.
+[[rules]]
+id = "restic-password-literal"
+description = "restic password assigned as a literal instead of read from the Keychain"
+regex = '''(?i)\brestic[_-]?password\b\s*[:=]\s*["']?([^$\s"'][^\s"']{11,})'''
+secretGroup = 1
+
+# --- Tailscale auth key -------------------------------------------------
+# Anticipatory: step 12 (Tailscale remotes) is deferred by choice, but Tailscale
+# is installed and an auth key is the credential that step would introduce.
+# Cheaper to have the rule before the key exists than to remember afterward.
+[[rules]]
+id = "tailscale-auth-key"
+description = "Tailscale auth/API key"
+regex = '''\btskey-(?:auth|api|client|scim)-[A-Za-z0-9\-]{16,}\b'''
+
+# --- The runbook's synthetic credentials --------------------------------
+# RUNBOOK.md step 6 proves the pre-commit hook fires, and it has to use values
+# gitleaks actually flags (AKIAIOSFODNN7EXAMPLE is allowlisted upstream and
+# proves nothing). Those three values are allowlisted here BY VALUE, not by
+# file and line. The previous mechanism, .gitleaksignore fingerprints
+# anchored to RUNBOOK.md line numbers, went stale on 2026-09-07 when text was
+# added above them -- and the hook did not block, because `gitleaks git
+# --staged` scans only the changed hunks. A whole-file scan (scripts/
+# export-public.sh) was the first thing to notice. Anchoring to the value
+# means: these exact fakes pass anywhere; any other secret, including one
+# pasted on the line after them, is still caught.
+[allowlist]
+regexTarget = "match"
+#
+# Not AWS-shaped, as they once were: GitHub push protection matches provider
+# formats regardless of any allowlist here, and blocked the public mirror's
+# first push on the fake AKIA key. Synthetic test values must trip gitleaks
+# and nothing upstream.
+regexes = [
+  '''q7vX2mNp4LkR9sT1uW8yZ3bC6dF0hJ5eK2wQ''',
+  '''ghp_au4LLW6Q7Tpvx9jOFLZgPY6jJm5LZcYMw5nC''',
+]

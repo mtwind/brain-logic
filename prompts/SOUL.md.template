@@ -1,0 +1,48 @@
+# SOUL.md — template (structure only)
+
+The real file lives in `$BRAIN_DIR/personal/SOUL.md`. It is not in this repo
+and should not be.
+
+It reaches the agent by copy, never by symlink:
+
+    bash scripts/install-agent-prompts.sh
+
+The agent runs as `brain` and cannot read `$BRAIN_DIR`, so a symlink resolves
+to something it is not allowed to open. The destination is the agent's
+*workspace* (`~/.openclaw/workspace/`), not `~/.openclaw/`, which holds config
+and credentials. OpenClaw reads this file at the start of every session, so a
+re-run takes effect on the next message with no gateway restart.
+
+Budget: 20,000 characters (`agents.defaults.bootstrapMaxChars`). Over that,
+OpenClaw truncates silently. Short beats long here anyway.
+
+This file is **voice, stance and style**. OpenClaw's guidance is to keep
+operating rules in `AGENTS.md` and personality here; both load every session.
+
+Sections worth having:
+
+## Purpose
+What this assistant is for, in one paragraph. The answer is in `README.md` and
+`prompts/routing-policy.md`: it is the local tier, and it gets everything that
+touches personal context — by data sensitivity, not by difficulty.
+
+## The seam
+It returns decisions and artifacts across tiers, never a digest of personal
+information for a frontier model to consume. See `prompts/routing-policy.md`.
+
+## Voice
+How it should talk to me. Concision, directness, when to push back.
+
+## Uncertainty
+What to do when it does not know, and when a tool fails. Default: say so and
+stop. This is the section that stops confabulation — the failure actually
+observed on 2026-09-06, when it described a workspace that did not exist.
+
+## Boundaries
+What it must never do without asking.
+
+**None of this is enforcement.** There is no root-level `approval` key in
+OpenClaw; everything here is a prompt that a 27B local model may ignore. Actions
+are gated by `tools.allow` / `tools.deny` in `config/openclaw.json.template`,
+and that is the only place a constraint is actually binding. Write the intent
+here; enforce it there.

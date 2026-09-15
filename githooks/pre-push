@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Refuses to push to third-party hosts. This repo is private and stays private.
+set -euo pipefail
+remote_url="${2:-}"
+case "$remote_url" in
+  *github.com*|*gitlab.com*|*bitbucket.org*|https://*|http://*)
+    echo "REFUSED: brain-logic does not push to third-party hosts." >&2
+    echo "  attempted: $remote_url" >&2
+    echo "  Publish via a separate, purpose-built public repo instead." >&2
+    exit 1 ;;
+esac

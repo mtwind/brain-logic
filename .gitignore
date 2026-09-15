@@ -1,0 +1,33 @@
+# Rendered config — contains real credentials
+config/*.json
+!config/*.template
+!config/*.template.json
+openclaw.json
+mcporter.json
+
+# Secrets, in any shape
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*_rsa
+*credentials*
+*secret*
+
+# Extra identifiers for scripts/export-public.sh to refuse -- by definition
+# personal, so never committed
+config/export-denylist.local
+
+# Logs and local state
+logs/*
+!logs/.gitkeep
+*.log
+
+# Backups and dumps never belong here
+*.dump
+*.sql
+*.tar.gz
+
+# macOS
+.DS_Store

@@ -1,0 +1,54 @@
+# brain-setup.conf — copy to brain-setup.conf and edit.
+# Environment variables override anything set here.
+
+# ---- models ----------------------------------------------------------------
+
+# Space-separated list. One model is the normal case; list two if you want to
+# run a bake-off and decide with a week of real use rather than benchmarks.
+#
+# Sizing rule of thumb on Apple Silicon: macOS itself takes 6-10GB, so treat a
+# 24GB machine as ~15GB usable. A 27-30B model at Q4 is ~17-18GB — it fits, but
+# only one at a time, and not with a large context window.
+#
+# BRAIN_MODELS="qwen3.6:27b-q4_K_M muse-glimmer:30b"
+BRAIN_MODELS="qwen3.6:27b-q4_K_M"
+
+# Embedding model. THIS IS PERMANENT once you run `gbrain init` — the dimension
+# count is written into the database schema, and changing it later forces a
+# full re-index of everything you have ingested.
+#
+#   nomic-embed-text              768d   GBrain's Ollama default. Start here.
+#   mxbai-embed-large            1024d
+#   snowflake-arctic-embed-l-v2  1024d
+#   all-minilm                    384d   smallest/fastest
+#   qwen3-embed-8b               4096d   expensive to store and search
+BRAIN_EMBED_MODEL="nomic-embed-text"
+
+# ---- Ollama runtime --------------------------------------------------------
+
+# `auto` sizes from installed RAM: <32GB → 16K, 32GB → 24K, 48GB → 32K, 64GB+ → 64K.
+# Raise it only until you see memory pressure. Agent runtimes will ask for more
+# than your hardware can give; that is a hardware fact, not a misconfiguration.
+BRAIN_CONTEXT_LENGTH="auto"
+
+BRAIN_KV_CACHE_TYPE="q8_0"      # requires flash attention to have any effect
+BRAIN_FLASH_ATTENTION="1"
+BRAIN_MAX_LOADED_MODELS="1"     # raise only if you have RAM to spare
+BRAIN_KEEP_ALIVE="30m"
+
+# ---- database --------------------------------------------------------------
+
+BRAIN_PG_VERSION="17"
+BRAIN_DB_NAME="gbrain"
+
+# ---- components (0 to skip) ------------------------------------------------
+
+BRAIN_INSTALL_OLLAMA="1"
+BRAIN_INSTALL_POSTGRES="1"
+BRAIN_INSTALL_GBRAIN="1"
+BRAIN_INSTALL_CLAUDE_CODE="1"
+
+# ---- optional --------------------------------------------------------------
+
+BRAIN_VOICE_DIR="$HOME/brain/voice"
+BRAIN_MIN_DISK_GB="auto"        # auto = 15GB + 20GB per model

@@ -1,0 +1,39 @@
+# USER.md — template (structure only)
+
+The real file lives in `$BRAIN_DIR/personal/USER.md`. It belongs with the brain,
+not here.
+
+**It is not a dossier.** OpenClaw's spec is explicit about this — the file holds
+*directives*, not observations: one imperative per entry, dated, marked `active`
+or `superseded`. That is what the 4,000-character budget is sized for. An
+earlier version of this template called it a dossier, which is where the
+temptation to write one came from.
+
+It reaches the agent by copy, never by symlink -- see `SOUL.md.template` for
+why, and `scripts/install-agent-prompts.sh` for how.
+
+**Budget: 4,000 characters, hard, and separate from every other bootstrap
+file.** OpenClaw does not reject an oversized USER.md -- it injects the first
+4,000 characters and drops the rest, cut wherever that lands, every session,
+silently. So the agent's copy is a deliberately trimmed version, written for it:
+what it needs to not confabulate, not the whole dossier. The installer refuses
+anything larger rather than let it be truncated arbitrarily.
+
+Format, from OpenClaw's user-model spec:
+
+    <!-- observed: 2026-09-07 | status: active -->
+
+    - Prefer concise progress updates during implementation work.
+
+Rules: begin with `Always`, `Never`, or `Prefer`; one behavioral instruction per
+directive; date what you observed; status is only `active` or `superseded`.
+
+When a preference changes, mark the old entry `superseded` **in place** and put
+the replacement directly beneath it. Never leave two contradictory `active`
+directives — selecting a preference the owner has since changed is a documented
+failure mode, and append-only history recreates it.
+
+Worth encoding: communication norms, standing preferences, what "done" looks
+like for recurring requests, and relationship or project facts that change *how
+you should be assisted*. Not: biography. Durable facts and decisions go in
+`MEMORY.md`; running context goes in `memory/YYYY-MM-DD.md`.

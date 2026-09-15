@@ -1,0 +1,80 @@
+{
+  "// NOTE": "Template. Render with scripts/render-config.sh — never edit ~/.openclaw/openclaw.json by hand.",
+  "gateway": {
+    "// mode": "Required. The gateway refuses to start without it and exits 78/EX_CONFIG — a crash loop, not an error message, if nothing reads the log.",
+    "mode": "local",
+    "// bind": "loopback is the default; set explicitly so a future default change cannot widen exposure silently.",
+    "bind": "loopback",
+    "// auth": "Without this the gateway mints a throwaway token per restart and warns that auth is off — meaning any local process can drive the agent unauthenticated. Rendered from the Keychain (brain/gateway-token, see scripts/new-gateway-token.sh) rather than persisted by the agent, which must not rewrite its own config.",
+    "auth": {
+      "mode": "token",
+      "token": "${GATEWAY_TOKEN}"
+    }
+  },
+  "// discovery": "The bonjour plugin auto-starts on macOS and was advertising this gateway over LAN mDNS. Nothing could connect — the bind is loopback — but it broadcast the machine name and service to the network anyway. off suppresses the advertising without disabling the plugin.",
+  "discovery": {
+    "mdns": {
+      "mode": "off"
+    }
+  },
+  "// plugins": "memory-core is disabled deliberately. Its embedding provider defaults to OpenAI (memory.search.provider is unset = openai), so it tried to send conversation content to a cloud API to embed it — the log line 'No API key found for provider openai' is that attempt failing. It failed only because no key exists, which is luck, not a boundary. GBrain is the memory layer for this machine; a second memory store that phones out is not wanted at any price. Re-enable ONLY with memory.search.provider pinned to ollama.",
+  "plugins": {
+    "entries": {
+      "memory-core": {
+        "enabled": false
+      }
+    }
+  },
+  "// tools": "STARTING POINT, not a settled policy. Replaces the invented 'approval' block that never took effect. deny wins over allow and supports wildcards; groups are listed in OpenClaw's config-tools docs. The posture is the runbook's own: grant nothing up front, add back one at a time when something actually breaks. Denied here: group:runtime (exec, process, code_execution), group:ui (browser, screen, terminal, portal, canvas, dashboard), group:nodes (nodes, computer — computer control), the three mutating fs tools (read stays), and the gateway tool, which is the agent's route to administering itself. Left available: read, web search/fetch, sessions, memory, messaging, goals, media, cron.",
+  "tools": {
+    "// profile": "minimal = session_status only. Deliberately severe, and temporary. The agent looped calling update_goal on a goal it never created, then fetched OpenClaw's own docs about 'soul' — the behaviour of a model with no stated purpose and a large tool catalog. A 27B local model is not a frontier model and flails when handed fifteen plugins' worth of tools. Replies are not tools, so it can still hold a conversation. Add capabilities back one at a time, each for a reason, once SOUL.md/USER.md give it a purpose.",
+    "profile": "minimal",
+    "// deny": "Kept alongside the profile as defence in depth: a future profile change must not silently re-grant shell exec or computer control.",
+    "deny": [
+      "group:runtime",
+      "group:ui",
+      "group:nodes",
+      "write",
+      "edit",
+      "apply_patch",
+      "gateway"
+    ]
+  },
+  "// agents": "heartbeat.every 0m disables the scheduler-owned monitor turn, which defaults to every 30 minutes. It was running a full ~38s inference pass on the 27B every half hour: with no monitor scratch OpenClaw still runs the heartbeat and lets the model decide what to do, and there is nothing for it to do -- tools.profile is minimal and no checklist exists. The cost is not just GPU. A 17GB resident model puts free memory under the floor macOS requires to start any audio device, so an unattended heartbeat broke audio for the length of the keep-alive window, every 30 minutes, forever. OpenClaw's own docs recommend 0m while evaluating a setup. Event-driven wakes still work; only the recurring cadence stops.",
+  "agents": {
+    "defaults": {
+      "heartbeat": { "every": "0m" }
+    }
+  },
+  "models": {
+    "providers": {
+      "ollama": {
+        "// baseUrl": "MUST NOT end in /v1 — the OpenAI-compat endpoint silently breaks tool calling",
+        "baseUrl": "http://localhost:11434",
+        "apiKey": "ollama-local",
+        "api": "ollama",
+        "timeoutSeconds": 300,
+        "models": [
+          {
+            "id": "qwen3.6:27b-q4_K_M",
+            "name": "qwen3.6:27b-q4_K_M",
+            "contextWindow": 16384,
+            "maxTokens": 4096,
+            "// think": "Thinking is ON by default in Ollama. Leave it off for agent runs — with Qwen it causes silent tool-call failures, and the trace eats the context window. It belongs in params; a model-level \"think\" is rejected by the schema.",
+            "params": { "num_ctx": 16384, "temperature": 0.1, "think": false }
+          }
+        ]
+      }
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "// botToken": "The key is botToken. A plain \"token\" is rejected by the schema.",
+      "botToken": "${TELEGRAM_TOKEN}",
+      "// dmPolicy": "pairing is the default: an unknown sender must be approved before it can talk to the assistant. Set explicitly because this is the access boundary for everything behind it. Approvals land in ~/.openclaw/credentials/telegram-allowFrom.json in the agent account.",
+      "dmPolicy": "pairing"
+    }
+  },
+  "// approval": "There is no root-level 'approval' key in OpenClaw. The block that used to sit here — require: [send_message, send_email, purchase, file_delete, git_push] — was invented and was silently never in effect, because this config had never been loaded. The real surfaces are tools.allow / tools.deny (deny wins, wildcards) and exec approvals. Deliberately left unset: which actions need confirmation is a values question, not a defaulting one."
+}
