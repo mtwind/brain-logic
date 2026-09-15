@@ -57,7 +57,7 @@ done
 # otherwise. Only COMMITTED content is staged (git archive HEAD), so an edit
 # that has not been reviewed on a branch cannot leak through the working tree.
 INCLUDE=(
-  CLAUDE.md README.md RUNBOOK.md
+  CLAUDE.md README.md RUNBOOK.md LICENSE
   .gitignore .gitattributes .gitleaks.toml
   config/paths.env
   config/openclaw.json.template
