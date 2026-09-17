@@ -19,7 +19,9 @@
 #   1. gitleaks over the staged tree, same rules as the pre-commit hook.
 #   2. Identifiers: the owner's username, home path, hostnames, git author
 #      name and email, plus any line in config/export-denylist.local
-#      (gitignored, because a list of your identifiers is itself one). These
+#      (gitignored, because a list of your identifiers is itself one; entries
+#      are literal substrings, so a username that is a prefix of something
+#      public -- a GitHub handle, say -- needs its context: `user@`, not `user`). These
 #      are derived from the machine at run time, so nothing personal is
 #      written into this script.
 #

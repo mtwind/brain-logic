@@ -18,6 +18,7 @@ mcporter.json
 # Extra identifiers for scripts/export-public.sh to refuse -- by definition
 # personal, so never committed
 config/export-denylist.local
+config/paths.local.env
 
 # Logs and local state
 logs/*

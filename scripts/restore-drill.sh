@@ -27,5 +27,22 @@ rows=$(psql -d "$DB_TEST" -tAc \
   "SELECT COALESCE(sum(n_live_tup),0) FROM pg_stat_user_tables;" 2>/dev/null || echo 0)
 echo "    restored from $(basename "$latest"), ~$rows rows"
 
+# Offsite: restore the latest restic snapshot into scratch and count what came
+# back. Skipped, not failed, when restic is not configured -- the drill above
+# still proves the on-disk path. Nothing restored here is read or printed:
+# only counts, and the restic summary line.
+if command -v restic >/dev/null 2>&1 && [ -n "${BRAIN_RESTIC_REPO:-}" ] \
+   && security find-generic-password -a "$USER" -s brain/restic-password -w >/dev/null 2>&1; then
+  echo "==> Restoring latest restic snapshot into $SCRATCH/restic"
+  export RESTIC_REPOSITORY="$BRAIN_RESTIC_REPO"
+  export RESTIC_PASSWORD_COMMAND="security find-generic-password -a $USER -s brain/restic-password -w"
+  restic restore latest --target "$SCRATCH/restic" 2>&1 | grep -E 'restoring|Summary|error' | sed 's/^/    /' || true
+  rfiles=$(find "$SCRATCH/restic" -type f | wc -l | tr -d ' ')
+  [ "$rfiles" -gt 0 ] || { echo "restic restore produced no files" >&2; exit 1; }
+  echo "    $rfiles files restored from $(restic snapshots latest --json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); print(s[-1]["short_id"], s[-1]["time"][:19])' 2>/dev/null || echo 'latest')"
+else
+  echo "==> restic not configured; offsite restore skipped"
+fi
+
 echo
 echo "Restore drill passed. Re-run after any change to the backup pipeline."

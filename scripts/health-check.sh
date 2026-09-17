@@ -389,7 +389,20 @@ check_backups() {
   [ -n "${BRAIN_RESTIC_REPO:-}" ] || missing+=("BRAIN_RESTIC_REPO unset")
   if [ ${#missing[@]} -eq 0 ]; then
     if launchctl print "gui/$(id -u)/com.personalbrain.restic" >/dev/null 2>&1; then
-      detail "off-disk: restic job loaded; see logs/restic.log for its last run"
+      # The job's own log ends each run with "ok" or "RESTIC FAILED"; the
+      # "=== <iso time> ===" header above it says when. Read, never score:
+      # a failed offsite run is worth a line here, not a DOWN that hides the
+      # on-disk dump being fine.
+      local rlog="${REPO}/logs/restic.log" last_hdr="" last_line=""
+      if [ -r "$rlog" ]; then
+        last_hdr=$({ grep -E '^=== .* ===$' "$rlog" || true; } | tail -1 | tr -d '=' | cut -c2-20)
+        last_line=$({ grep -E '^(ok|.*RESTIC FAILED)$' "$rlog" || true; } | tail -1)
+      fi
+      case "$last_line" in
+        ok)         detail "off-disk: restic job loaded; last run ok at ${last_hdr:-?}" ;;
+        *FAILED*)   detail "off-disk: restic job loaded; last run FAILED at ${last_hdr:-?} -- see logs/restic.log" ;;
+        *)          detail "off-disk: restic job loaded; no completed run in logs/restic.log yet" ;;
+      esac
     else
       detail "off-disk: restic is ready but its job is NOT loaded"
     fi

@@ -1228,3 +1228,81 @@ The mirror was deleted and rebuilt rather than amended: push protection
 scans every commit in the push, so a history that ever held the AKIA value
 cannot be pushed, only replaced. Cheap while the mirror is one commit old;
 the reason to keep the mirror's history disposable.
+
+## 2026-09-17 — restic backs up to the Windows desktop over Tailscale; the desktop also holds a bare git remote
+
+**Backend: the owner's Windows desktop, SFTP over Tailscale.** Decided by the
+owner on 2026-09-07 and built 2026-09-16/17. No cloud account exists yet, and
+an external disk is unplugged at 03:45 by definition. This is off-disk, not
+off-site: fire or theft takes both machines. Accepted, with B2 as the obvious
+second repository later — restic makes a second target a second job, not a
+redesign. restic encrypts on the MacBook, so the desktop holds ciphertext.
+
+Windows-side setup was done by a Claude session on the desktop, from a
+self-contained brief carrying the MacBook's public key and nothing about the
+project beyond "encrypted backups it cannot read". Three Windows facts cost
+time and are worth keeping:
+
+- Windows OpenSSH ignores a user's own `authorized_keys` for Administrators
+  unless the `Match Group administrators` block in `sshd_config` is removed.
+- A loopback SSH test on the desktop proves nothing about the MacBook's key.
+  The only test that counts runs from the MacBook with `-o BatchMode=yes`,
+  which is the condition the nightly job runs under.
+- Windows OpenSSH hands commands to `cmd.exe`, which does not strip the
+  single quotes git puts around the repository path, so `git push` fails
+  with a doubled-quote path. Setting sshd's `DefaultShell` to Git's
+  `bash.exe` fixes it and leaves SFTP untouched.
+
+First backup: 431 files, 4.9 MiB, `restic check` clean; job loaded, fires
+03:45 daily; `health-check.sh` now reads the job's last result and time
+from its log; `restore-drill.sh` restores the latest snapshot into scratch
+and counts files. When it fails at 03:45: desktop asleep, Tailscale down on
+either end, or the key rejected all write `RESTIC FAILED` to `logs/restic.log`
+and post a notification.
+
+**The desktop holds a bare `brain-logic.git`, as remote `desktop`.** RUNBOOK
+step 9, finally, minus half of it: **no git remote for the brain repo.** That
+half predates restic. The brain is already on the desktop encrypted; a bare
+git remote would add a plaintext copy of the most sensitive data here to a
+machine that is not a sandbox and whose disk encryption is unknown. Restic
+only, for the brain. *Would reverse if:* the desktop gains verified disk
+encryption and a concrete reason to want history rather than snapshots.
+
+The remote is named `desktop`, not `origin`: it is a copy, not the source of
+truth, and the owner pushes to it by hand. The pre-push hook allows it as a
+mesh destination.
+
+**Also found: Ollama.app had owned `:11434` since 22:59 on 2026-09-07** —
+ten minutes after launch-at-login was turned off, almost certainly because
+opening the app to change the setting started its server, which outlived
+the window. The agent crash-looped for ten days behind an endpoint that
+answered normally, exactly the 2026-09-07 landmine. Quitting the app via
+AppleScript left `ollama serve` orphaned under launchd; it had to be killed
+by pid. The agent reclaimed the port within 15s. Nothing catches this but
+running the health check, which nobody did between 09-07 and 09-17. That
+gap is the actual finding.
+
+## 2026-09-17 — Machine identities live in `config/paths.local.env`, never in the repo
+
+The first export after the restic work staged
+`BRAIN_RESTIC_REPO="sftp:<user>@<desktop>.<tailnet>.ts.net:brain-restic"` —
+the owner's Windows username, the desktop's Tailscale name and the tailnet
+identifier. Not a credential, and the name resolves only inside the tailnet,
+but it is the same class of fact the export already refuses for this machine,
+and the scan missed it because its list is derived from this machine alone.
+Caught by reading the snapshot before pushing; the mirror was reset.
+
+Decided by the owner: keep it private, and not only for privacy — the repo is
+meant to become fully public, and a stranger reading someone else's hostnames
+in a config file learns nothing useful and may copy them.
+
+`config/paths.env` now sources an optional, gitignored `paths.local.env`
+last, for anything that identifies a person or a machine rather than the
+layout. `BRAIN_RESTIC_REPO` moves there; `paths.env` keeps the documented,
+commented placeholder. The desktop's names go in `config/export-denylist.local`
+(also gitignored), so the export refuses them from now on. Proven: the
+denylist blocked the old committed value in `--dry-run`; the cron guard,
+`health-check.sh` and the job itself still read the repo through the include.
+
+*Would reverse if:* the number of local values grows past a handful, at
+which point a real config layering scheme beats a second env file.
