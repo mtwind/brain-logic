@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Refuses to push to third-party hosts. This repo is private and stays private.
+# Refuses to push to any third-party host except the owner's own PRIVATE
+# GitHub repo. This working repo's history holds machine state and the
+# owner's identifiers; the public mirror is a separate fresh-history repo
+# built by scripts/export-public.sh, and only that is ever public.
+#
+# Decided 2026-09-17 (docs/decision-log.md), reversing the 2026-08-18 rule for
+# brain-logic only. The brain repo still never gets a third-party remote.
 set -euo pipefail
 remote_url="${2:-}"
 case "$remote_url" in
+  *github.com[:/]mtwind/brain-logic-private.git|*github.com[:/]mtwind/brain-logic-private)
+    exit 0 ;;
   *github.com*|*gitlab.com*|*bitbucket.org*|https://*|http://*)
-    echo "REFUSED: brain-logic does not push to third-party hosts." >&2
+    echo "REFUSED: brain-logic pushes only to its own private GitHub repo or the Tailscale mesh." >&2
     echo "  attempted: $remote_url" >&2
-    echo "  Publish via a separate, purpose-built public repo instead." >&2
+    echo "  The public mirror is built by scripts/export-public.sh, never pushed from here." >&2
     exit 1 ;;
 esac

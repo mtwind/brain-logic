@@ -3,12 +3,15 @@
 The engineering half of my Personal Brain. Config, skills, prompts, cron jobs,
 scripts, and design docs.
 
-**This working copy is private and stays private.** Not "private for now" — see
+**The working repo is private; this may be its public mirror.** The working
+repo lives in a private GitHub repo and its history holds machine state, so
+it is never flipped public — see
 [docs/repo-structure-and-security.md](docs/repo-structure-and-security.md).
 The public mirror is a separate repo with fresh history, built by
 `scripts/export-public.sh` from an allowlist of committed files, scanned for
-secrets and for anything naming the owner or the machine before a single
-commit is made. Nothing is ever flipped public in place.
+secrets and for anything naming the owner or the machines before a single
+commit is made. If you find something personal here, that is a bug in the
+export.
 
 ## The rule that makes this repo work
 

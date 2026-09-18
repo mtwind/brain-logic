@@ -1306,3 +1306,37 @@ denylist blocked the old committed value in `--dry-run`; the cron guard,
 
 *Would reverse if:* the number of local values grows past a handful, at
 which point a real config layering scheme beats a second env file.
+
+## 2026-09-17 — brain-logic's working repo moves to a private GitHub repo
+
+Reverses the 2026-08-18 "no third-party remote" rule for `brain-logic` only.
+The brain repo is unchanged: never a third-party remote, restic only.
+
+What changed since August: the tree no longer names the owner or either
+machine (`paths.local.env`, the export denylist), gitleaks has scanned every
+commit, and the public question is already answered by the fresh-history
+mirror. What did not change, and is why this is private rather than public:
+the *history* holds the Telegram account id, the home path, the machine name,
+the retired AWS-shaped test fakes (which GitHub push protection rejects on
+sight), and every version of `HANDOFF.md`. A private repo shows that history
+to nobody new; a public one would require rewriting it.
+
+Gains: pull requests as the merge mechanism, which is how the owner already
+works; a hosted copy of history updated on every push. The desktop bare repo
+of the same morning is redundant and its remote entry is removed, so a stale
+copy cannot masquerade as current. The pre-push hook allows exactly one URL
+and still refuses the public mirror's, so an accidental `git push` to the
+wrong repo fails.
+
+Costs, accepted: GitHub holds the history, including the identifiers above,
+under the owner's account; the security-boundary map in this log is visible
+to anyone who ever gets that account. Same reasoning as the gateway token
+on 2026-09-05: it leaks to nobody who does not already hold the keys.
+
+*Would reverse to fully public* once the bring-up is over and `HANDOFF.md`
+stops being a weekly machine-state file: rewrite history with git filter-repo,
+drop the excluded files from it, run the identifier scan in the pre-push hook,
+and retire the mirror. One afternoon, later.
+
+*Would reverse to local-only* if a third person ever needs write access to
+the GitHub account, or if the account is compromised.
