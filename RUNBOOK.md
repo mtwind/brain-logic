@@ -267,6 +267,18 @@ gbrain doctor
 Do not run bare `gbrain init`. Its default embedding provider is a cloud API,
 which would send your notes to a third party.
 
+`init` creates an empty database. It does not read the repo. Load it, and
+re-run the same command whenever the repo has changed (the nightly
+`brain-commit` job commits; nothing syncs):
+
+```bash
+gbrain sync --repo "$BRAIN_DIR"     # import, embed on the local model, extract links
+gbrain stats                        # Pages must not be 0
+```
+
+Found on 2026-09-17: the database had been empty since init, and every backup
+since was a schema. `gbrain stats` is the check.
+
 **A confusing detail:** GBrain talks to Ollama's embedding endpoint at
 `http://localhost:11434/v1` — *with* the `/v1`. That does not contradict the
 OpenClaw rule. OpenClaw must omit `/v1` because the OpenAI-compat path breaks
@@ -347,6 +359,14 @@ security add-generic-password -a "$USER" -s brain/telegram-token -w
 bash scripts/new-gateway-token.sh          # --force rotates
 ```
 
+The assistant's one path to the brain is gbrain's MCP server, run as *you* on
+loopback, with a read-only token the gateway presents. Both before the config:
+
+```bash
+bash scripts/install-gbrain-mcp-agent.sh   # LaunchAgent com.personalbrain.gbrain-mcp, 127.0.0.1 only
+bash scripts/new-gbrain-token.sh           # scope read, into the Keychain; --force rotates
+```
+
 Then, in this order — the same two commands apply every later config change:
 
 ```bash
@@ -389,7 +409,7 @@ Finally:
 sudo -v && bash scripts/health-check.sh
 ```
 
-Every row should read `OK`, including `prompts`. Under sudo it also reports the
+Every row should read `OK`, including `prompts` and `gbrain-mcp`. Under sudo it also reports the
 gateway's launchd state and socket owner; without it those read `UNKNOWN`,
 which is deliberate.
 

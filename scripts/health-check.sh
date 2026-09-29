@@ -223,8 +223,11 @@ check_ollama_service() {
   env_out=$({ ps -Eww -o command= -p "$agent_pid" 2>/dev/null || true; } | tr ' ' '\n')
   ctx=$(printf '%s\n' "$env_out"  | { grep -E '^OLLAMA_CONTEXT_LENGTH=' || true; } | cut -d= -f2)
   keep=$(printf '%s\n' "$env_out" | { grep -E '^OLLAMA_KEEP_ALIVE=' || true; } | cut -d= -f2)
+  maxm=$(printf '%s\n' "$env_out" | { grep -E '^OLLAMA_MAX_LOADED_MODELS=' || true; } | cut -d= -f2)
   result ollama-svc OK "agent owns :${OLLAMA_PORT} (pid ${agent_pid})"
-  detail "live env: context ${ctx:-unset}, keep-alive ${keep:-unset}"
+  detail "live env: context ${ctx:-unset}, keep-alive ${keep:-unset}, max loaded ${maxm:-unset}"
+  # 1 means every gbrain search evicts the chat model to load the embedder.
+  [ "${maxm:-}" = "1" ] && detail "max loaded 1: each search reloads the 27B and re-reads the prompt -- bash scripts/install-ollama-agent.sh"
 }
 
 # ---- Postgres: GBrain's store ----
@@ -261,6 +264,78 @@ check_postgres() {
     result postgres DOWN "server up, but ${DB} query failed: ${err:-no error text}"
   fi
   rm -f "${TMPDIR:-/tmp}/hc-psql.$$"
+}
+
+# ---- GBrain MCP: the assistant's only path to memory ----
+#
+# Runs as the owner (com.personalbrain.gbrain-mcp) on loopback; the gateway,
+# running as brain, reaches it with a read-scoped token and never touches
+# Postgres. If this is down the assistant's gbrain__search tool errors on every
+# turn that needs memory -- and a local model hitting a tool error is exactly
+# the loop signature -- so this row matters more than its size suggests.
+#
+# The bind address is checked, not assumed. A server on 0.0.0.0 would offer
+# the brain to the LAN with only a bearer token in the way.
+
+check_gbrain_mcp() {
+  local label="${GBRAIN_MCP_LABEL:-com.personalbrain.gbrain-mcp}" port="${GBRAIN_MCP_PORT:-3131}"
+  local domain="gui/$(id -u)" print_out agent_pid last_exit holder bind body state msg
+
+  print_out=$({ launchctl print "${domain}/${label}" 2>/dev/null || true; })
+  if [ -z "$print_out" ]; then
+    if [ -f "$HOME/Library/LaunchAgents/${label}.plist" ]; then
+      result gbrain-mcp DOWN "${label} is installed but not loaded"
+    else
+      result gbrain-mcp DOWN "${label} is not installed -- the assistant cannot query GBrain"
+    fi
+    detail "bash scripts/install-gbrain-mcp-agent.sh"
+    return
+  fi
+
+  agent_pid=$(printf '%s\n' "$print_out" | awk '/^\tpid = /{print $3; exit}')
+  last_exit=$(printf '%s\n' "$print_out" | awk '/^\tlast exit code = /{print $5; exit}')
+  if [ -z "$agent_pid" ]; then
+    if [ -n "${last_exit:-}" ] && [ "$last_exit" != "0" ]; then
+      result gbrain-mcp DOWN "${label} is crash-looping (last exit ${last_exit})"
+      local why log="${BRAIN_LOGIC_DIR:-.}/logs/gbrain-mcp.err.log"
+      why=$({ grep -aiE 'error|refus|EADDRINUSE|not on PATH|PGHOST' "$log" 2>/dev/null || true; } | tail -1 | cut -c1-110)
+      [ -n "$why" ] && detail "${why}"
+    else
+      result gbrain-mcp DOWN "${label} is loaded but not running"
+    fi
+    return
+  fi
+
+  probe "http://127.0.0.1:${port}/health" 5
+  if [ "$RC" -ne 0 ]; then
+    IFS='|' read -r state msg <<<"$(probe_verdict "127.0.0.1:${port}" 5)"
+    result gbrain-mcp "$state" "agent running (pid ${agent_pid}) but ${msg}"
+    return
+  fi
+
+  holder=$({ lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true; } | awk 'NR==2 {print $2}')
+  bind=$({ lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true; } | awk 'NR==2 {print $9}')
+  if [ -n "$holder" ] && [ "$holder" != "$agent_pid" ]; then
+    result gbrain-mcp DOWN "port ${port} is served by pid ${holder}, not the agent (pid ${agent_pid})"
+    detail "$({ ps -o command= -p "$holder" 2>/dev/null || true; } | cut -c1-100)"
+    return
+  fi
+  case "$bind" in
+    127.0.0.1:*) ;;
+    "") result gbrain-mcp UNKNOWN "answering on :${port} but lsof shows no listener"; return ;;
+    *)  result gbrain-mcp DOWN "listening on ${bind} -- NOT loopback; the brain is reachable from the network"; return ;;
+  esac
+
+  # /health is unauthenticated by design and reports the database's state,
+  # which is the part that fails on its own: the process stays up when
+  # Postgres is not.
+  body=$({ curl -sS -m 5 "http://127.0.0.1:${port}/health" 2>/dev/null || true; })
+  case "$body" in
+    *'"status":"ok"'*)  result gbrain-mcp OK "agent owns 127.0.0.1:${port} (pid ${agent_pid}), db ok" ;;
+    *unreachable*|*degraded*|*unhealthy*)
+      result gbrain-mcp DOWN "up on 127.0.0.1:${port} but not healthy: ${body}" ;;
+    *) result gbrain-mcp UNKNOWN "answering HTTP ${HTTP_CODE} on /health: ${body:-empty body}" ;;
+  esac
 }
 
 # ---- Gateway: the assistant's front door ----
@@ -419,6 +494,7 @@ check_backups() {
 check_ollama
 check_ollama_service
 check_postgres
+check_gbrain_mcp
 check_gateway
 check_prompts
 check_backups

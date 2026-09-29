@@ -62,6 +62,13 @@ else:
     print("    FAIL: placeholder not substituted")
     ok = False
 
+h = cfg.get("mcp", {}).get("servers", {}).get("gbrain", {}).get("headers", {}).get("Authorization", "")
+if h.startswith("Bearer ") and "${" not in h and len(h) > 27:
+    print("    ok: gbrain MCP bearer present, length %d" % (len(h) - 7))
+else:
+    print("    FAIL: mcp.servers.gbrain Authorization header not substituted")
+    ok = False
+
 mode = cfg.get("gateway", {}).get("mode")
 if mode in ("local", "remote"):
     print("    ok: gateway.mode=%s" % mode)
@@ -93,6 +100,28 @@ PY
     echo "    ok"
   else
     echo "    FAIL: ${AGENT_USER} cannot reach Ollama on 127.0.0.1:11434"; rc=1
+  fi
+
+  # The agent's only route to the brain is gbrain's MCP server on loopback,
+  # run as the owner (scripts/install-gbrain-mcp-agent.sh). It must be
+  # reachable, and it must refuse a call that carries no token: the boundary
+  # is the token, and 401 is what proves it is being checked.
+  local mcp_port="${GBRAIN_MCP_PORT:-3131}" code
+  echo "==> ${AGENT_USER} can reach the GBrain MCP server on 127.0.0.1:${mcp_port} (it must)"
+  if sudo -u "$AGENT_USER" curl -fsS -m 5 "http://127.0.0.1:${mcp_port}/health" >/dev/null 2>&1; then
+    echo "    ok"
+  else
+    echo "    FAIL: ${AGENT_USER} cannot reach /health on 127.0.0.1:${mcp_port}"
+    echo "    bash scripts/install-gbrain-mcp-agent.sh --status"; rc=1
+  fi
+  echo "==> the MCP server refuses ${AGENT_USER} without the token"
+  code=$({ sudo -u "$AGENT_USER" curl -sS -m 5 -o /dev/null -w '%{http_code}' \
+            -X POST "http://127.0.0.1:${mcp_port}/mcp" -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' 2>/dev/null || true; })
+  if [ "$code" = "401" ]; then
+    echo "    ok: 401"
+  else
+    echo "    FAIL: expected 401 without a token, got '${code:-no answer}'"; rc=1
   fi
 
   return $rc
@@ -127,6 +156,17 @@ if [ "${_tok_len:-0}" -lt 20 ]; then
   echo "An empty item is what you get from pressing Enter at the password prompt." >&2
   echo "Overwrite it in place -- plain add refuses when the item exists:" >&2
   echo "  security add-generic-password -a \"\$USER\" -s brain/telegram-token -w -U" >&2
+  exit 1
+fi
+unset _tok_len
+
+# Same check for the GBrain token. Without it the render fails later with a
+# less helpful message; with an empty one the gateway would connect, get 401
+# on every search, and the assistant would loop on a tool that always errors.
+_tok_len=$({ security find-generic-password -a "$USER" -s brain/gbrain-token -w 2>/dev/null || true; } | tr -d '\n' | wc -c | tr -d ' ')
+if [ "${_tok_len:-0}" -lt 20 ]; then
+  echo "Keychain item brain/gbrain-token is missing or empty (length ${_tok_len:-0})." >&2
+  echo "Mint it with:  bash scripts/new-gbrain-token.sh" >&2
   exit 1
 fi
 unset _tok_len

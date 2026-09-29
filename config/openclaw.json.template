@@ -29,6 +29,10 @@
   "tools": {
     "// profile": "minimal = session_status only. Deliberately severe, and temporary. The agent looped calling update_goal on a goal it never created, then fetched OpenClaw's own docs about 'soul' — the behaviour of a model with no stated purpose and a large tool catalog. A 27B local model is not a frontier model and flails when handed fifteen plugins' worth of tools. Replies are not tools, so it can still hold a conversation. Add capabilities back one at a time, each for a reason, once SOUL.md/USER.md give it a purpose.",
     "profile": "minimal",
+    "// alsoAllow": "Tools added back on top of minimal, one at a time, by model-facing name (<mcp server key>__<tool>). 2026-09-17, open work item 1: gbrain__search is gbrain's cheap hybrid retrieval (vector + keyword + RRF, no LLM expansion, read-only, one Postgres round trip). It is the narrowest thing that turns 'answers from nothing' into 'answers from the brain'. Every further entry needs a reason, a Telegram test the owner runs, and a watch for the loop signature (a tool that errors, retried until the turn burns). If the loop comes back, the last tool added is the cause.",
+    "alsoAllow": ["gbrain__search"],
+    "// loopDetection": "OpenClaw's own guard for the loop signature: repeated identical tool calls are cut off with backoff. Off by default; on here because that failure has happened twice on this machine (memory_search with no key, update_goal on a goal that never existed).",
+    "loopDetection": { "enabled": true },
     "// deny": "Kept alongside the profile as defence in depth: a future profile change must not silently re-grant shell exec or computer control.",
     "deny": [
       "group:runtime",
@@ -40,10 +44,38 @@
       "gateway"
     ]
   },
+  "// mcp": "gbrain's HTTP MCP server, run as the OWNER by scripts/install-gbrain-mcp-agent.sh on 127.0.0.1 (port from config/paths.env GBRAIN_MCP_PORT). The agent account has no Postgres role and must never get one; this is the only path from the agent to the brain, and it is an API, not the database. Three layers narrow it: the server runs --surface starter (the ~20-op set, the smallest that contains search), the token is minted with scope read by scripts/new-gbrain-token.sh (the server refuses write ops to it even when asked by name -- verified 2026-09-17), and toolFilter.include exposes exactly one tool to the model. Never a stdio (command) entry here: it would run as brain and dial Postgres directly, which the config installer asserts is impossible.",
+  "mcp": {
+    "servers": {
+      "gbrain": {
+        "url": "http://127.0.0.1:${GBRAIN_MCP_PORT}/mcp",
+        "transport": "streamable-http",
+        "headers": { "Authorization": "Bearer ${GBRAIN_TOKEN}" },
+        "toolFilter": { "include": ["search"] },
+        "// timeouts": "Generous on purpose. While the 17GB model is generating, this machine sits at ~3% free memory with swap full, and gbrain's server (bun) and Postgres get paged out entirely -- 2MB resident, observed 2026-09-17. The first request after that pays the page-in. With the 5s default the first Telegram turn timed out on initialize, the error went back to the model, and it retried for 16 minutes without one search reaching gbrain. A slow answer is fine; a timeout here is the loop signature.",
+        "connectionTimeoutMs": 30000,
+        "requestTimeoutMs": 60000
+      }
+    }
+  },
+  "// cron": "Pauses every stored automation without deleting it. Found 2026-09-17 in `openclaw cron list` as brain: memory-core's 'Memory Dreaming Promotion' ran the 27B daily at 03:00 for 20-30 minutes per attempt, several attempts a night, while the plugin itself was disabled -- its schedule survived. A weekly 'Skill collection review' did the same on the main agent. Neither is in the handoff; nobody asked for either. Same failure class as the heartbeat: unattended inference on a machine where a resident model starves audio and swaps everything else out. Re-enable only for an automation someone actually wants, and say so in the decision log.",
+  "cron": { "enabled": false },
   "// agents": "heartbeat.every 0m disables the scheduler-owned monitor turn, which defaults to every 30 minutes. It was running a full ~38s inference pass on the 27B every half hour: with no monitor scratch OpenClaw still runs the heartbeat and lets the model decide what to do, and there is nothing for it to do -- tools.profile is minimal and no checklist exists. The cost is not just GPU. A 17GB resident model puts free memory under the floor macOS requires to start any audio device, so an unattended heartbeat broke audio for the length of the keep-alive window, every 30 minutes, forever. OpenClaw's own docs recommend 0m while evaluating a setup. Event-driven wakes still work; only the recurring cadence stops.",
+  "// session": "Idle reset, 4h. Found 2026-09-17: the main Telegram session had grown since 09-06, the tool schema pushed it over the compaction budget, and every message then triggered a 300s compaction that timed out and aborted the reply -- 'hello' typed for 16 minutes. GBrain is the memory layer by design; chat history is not, so a quiet session starting fresh costs nothing that matters. /new and /reset still work.",
+  "session": {
+    "reset": { "mode": "idle", "idleMinutes": 240 }
+  },
   "agents": {
     "defaults": {
-      "heartbeat": { "every": "0m" }
+      "heartbeat": { "every": "0m" },
+      "// compaction": "For when it runs anyway. safeguard mode with quality audits and a pre-compaction memory flush is several serial model turns; at 12 tok/s on the 27B that cannot finish inside the 5 minutes the Telegram ingress allows a turn, and the reply is aborted. default mode, no audits, no flush (memory-core is disabled; the flush writes to it), a notice to the user instead of ten minutes of 'typing', and a 120s window so a compaction that cannot finish fails fast and the reply still goes out.",
+      "compaction": {
+        "mode": "default",
+        "qualityGuard": { "enabled": false },
+        "memoryFlush": { "enabled": false },
+        "notifyUser": true,
+        "timeoutSeconds": 120
+      }
     }
   },
   "models": {

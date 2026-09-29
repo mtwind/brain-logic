@@ -20,6 +20,23 @@ GATEWAY_TOKEN=$(kc brain/gateway-token)
 }
 export GATEWAY_TOKEN
 
+GBRAIN_TOKEN=$(kc brain/gbrain-token)
+[ -n "$GBRAIN_TOKEN" ] || {
+  echo "missing keychain item: brain/gbrain-token" >&2
+  echo "Create it with: bash scripts/new-gbrain-token.sh" >&2
+  exit 1
+}
+export GBRAIN_TOKEN
+
+# Not a secret: the loopback port gbrain's MCP server listens on. Comes from
+# config/paths.env so the installer, the health check and the rendered config
+# cannot disagree about it.
+_P="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config/paths.env"
+# shellcheck source=/dev/null
+[ -f "$_P" ] && . "$_P"
+GBRAIN_MCP_PORT="${GBRAIN_MCP_PORT:-3131}"
+export GBRAIN_MCP_PORT
+
 mkdir -p "$(dirname "$DEST")"
 
 # Two passes:
@@ -34,7 +51,7 @@ mkdir -p "$(dirname "$DEST")"
 # JSON. The template stays strict JSON rather than JSON5 comments so it can be
 # parsed and checked by the installer before it is handed over.
 umask 077
-envsubst '${TELEGRAM_TOKEN} ${GATEWAY_TOKEN}' < "$TEMPLATE" | python3 -c '
+envsubst '${TELEGRAM_TOKEN} ${GATEWAY_TOKEN} ${GBRAIN_TOKEN} ${GBRAIN_MCP_PORT}' < "$TEMPLATE" | python3 -c '
 import json, sys
 
 def strip(node):

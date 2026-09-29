@@ -1340,3 +1340,179 @@ and retire the mirror. One afternoon, later.
 
 *Would reverse to local-only* if a third person ever needs write access to
 the GitHub account, or if the account is compromised.
+
+## 2026-09-17 — The first tool back: `gbrain__search`, through an owner-run MCP server on loopback
+
+Open work item 1 from the 09-17 handoff. The assistant had `session_status`
+and nothing else since 2026-09-06. Shape agreed by the owner before anything
+in `config/` changed.
+
+**The tool: gbrain's `search`.** Cheap hybrid retrieval — vector + keyword +
+RRF, expansion off, so one call is one Postgres round trip and cannot itself
+drive the 27B. Not `query`, `think` or `synthesize`: each makes LLM calls, and
+`query`'s expansion would run through whatever chat model gbrain is pointed
+at, which nobody has checked. Not gbrain's shipped OpenClaw plugin
+(`openclaw.plugin.json`, a stdio `gbrain serve`): both run *inside* the
+gateway, as `brain`, and dial Postgres directly — the config installer asserts
+that `brain` cannot do that, as a pass condition, and that stays true.
+
+**The path: an HTTP MCP server run as the owner.** LaunchAgent
+`com.personalbrain.gbrain-mcp` runs `scripts/gbrain-mcp-serve.sh`, which runs
+`gbrain serve --http` bound to `127.0.0.1` (port in `config/paths.env`,
+`GBRAIN_MCP_PORT`), with `--surface starter` and `--suppress-bootstrap-token`.
+The gateway reaches it over loopback, the same way it reaches Ollama. The
+agent account still has no Postgres role and no credential for anything but
+this one API. Three layers narrow what the API will do, and each was checked
+rather than assumed, because a guard that passes for the wrong reason is this
+repo's most repeated finding:
+
+1. **Server surface `starter`** — the ~20-op daily set, the narrowest that
+   contains `search` (`verbs` does not). `tools/list` with the read token
+   returned 18 ops; the writes were already gone.
+2. **Token scope `read`** — minted by `scripts/new-gbrain-token.sh` with
+   `--scopes read`, into Keychain `brain/gbrain-token`, never printed. A token
+   minted *without* `--scopes` is "grandfathered" to full access, which is why
+   that is a script and not a runbook line. Verified: `put_page` called by name
+   returns `insufficient_scope`.
+3. **Client filter** — `mcp.servers.gbrain.toolFilter.include: ["search"]` in
+   the template, plus `tools.alsoAllow: ["gbrain__search"]`, because the
+   `minimal` profile does not select MCP tools (only `coding`, `messaging` and
+   `full` do). `openclaw mcp probe` against the rendered config: 1 tool
+   exposed, 17 filtered. Profile and deny list unchanged.
+
+`tools.loopDetection.enabled: true` went in alongside — OpenClaw's own guard
+for exactly the loop signature this machine has produced twice. Off by default.
+
+**The `/admin` UI is unreachable on purpose.** `gbrain serve --http` mints an
+admin bootstrap token per start and prints it only on a TTY; under launchd
+there is no TTY and the flag suppresses it besides, so no value exists that
+anyone could log in with. If an admin UI is ever wanted, that is a
+`GBRAIN_ADMIN_BOOTSTRAP_TOKEN` in the Keychain and a deliberate change here.
+
+**Found on the way: the brain database is empty.** `gbrain stats`: 0 pages,
+0 chunks, 0 embedded; the `default` source has never synced. GBrain was
+initialised on 2026-08-18 and `$BRAIN_DIR` was never imported into it. Every
+search returns `[]` — cleanly, with a "clean miss" note rather than an error,
+which is what the loop test needs — and the nightly pgdump has been backing up
+a schema. Loading it is the owner's: `gbrain sync --repo "$BRAIN_DIR"`, on the
+local embedding model (`nomic-embed-text` is pulled). This session did not
+run it and must not; it reads the brain repo. Until it runs, the Telegram test
+of "something that is in the brain" cannot pass, and the assistant will say
+so rather than invent, if the prompts hold.
+
+**Verified this session (as the owner, no gateway restart):** loopback bind
+via `lsof`; `/health` 200 with `engine: postgres`; unauthenticated `tools/list`
+401; read-scoped `tools/list` and `tools/call` as above; `health-check.sh`
+gains a `gbrain-mcp` row that checks launchd state, port owner, bind address
+and `/health`; `install-openclaw-config.sh` gains the Keychain check, a
+substitution check on the bearer header, and two boundary asserts — `brain`
+reaches `/health`, and gets 401 on `/mcp` without the token; the rendered
+config passes `openclaw doctor --lint`.
+
+**Not verified:** the gateway has not loaded the new config (needs the owner's
+sudo), so the model has not yet called the tool, and the three-message
+Telegram test is still to run. `openclaw mcp probe` notes the tool carries no
+safety annotations and that "calls will require interactive approval" under
+the *Codex* approval mode; that setting is for the Codex harness and should
+not apply to the native run, but the first Telegram turn is where that gets
+proven, not here.
+
+*What happens when the agent fails at 3am:* `KeepAlive` restarts it every
+10s. If Postgres is down it comes up anyway and `/health` says so; the
+gateway's tool call errors and the assistant reports it cannot reach memory.
+Nothing else depends on it. `health-check.sh` reports it DOWN in the morning.
+
+*Would reverse if:* the loop signature returns after the restart — remove the
+`alsoAllow` entry, re-render, and the tool is the cause. A second tool
+(`get_page`, for full text when a snippet is not enough) goes through the
+same three layers, one `include` entry and one `alsoAllow` entry at a time.
+gbrain 0.51.0.0 is available (running 0.48.1.0); not taken, it touches schema,
+and it belongs with the OpenClaw upgrade in open work item 3.
+
+## 2026-09-18 — The first Telegram turn with the tool: four things it was not, and what it was
+
+The tool went in at 20:17 on 09-17. The owner typed `hello`; the bot showed
+"typing" for sixteen minutes and never answered. What the evening established,
+in the order it was established, because each step corrected the last:
+
+**Not the loop signature.** Thirteen model calls in one turn looked like it.
+But gbrain's request log showed no search had ever arrived, and the bare
+model, sent `hello` with the same tool schema, answered in 15s with no tool
+call. The tool was never called and never failed.
+
+**Not the MCP handshake timeout, though that was real.** The error log had
+one line: `bundle-mcp ... did not complete initialize within 5s`. At the
+time the machine had 3% free memory, 11 of 12GB swap in use, and gbrain's
+server at 2MB resident — paged out entirely while the 17GB model generated.
+The 5s connect and 20s request limits were raised to 30s/60s. Right fix,
+wrong cause: the timeout fired inside a retry, not on the first run.
+
+**Not the model retrying.** The Ollama log showed the first run alone made
+seven serial calls in five minutes, each prompt a few hundred tokens longer
+than the last, outputs of 323 and 627 tokens. Those are summaries, not tool
+calls.
+
+**It was compaction.** The gateway's own log, read unfiltered:
+`Compaction safeguard: summarizing ...` the instant the message arrived,
+then `[compaction-diag] ... trigger=budget ... outcome=failed reason=timeout
+durationMs=300093`, then `visible channel turn dispatched with no queued
+reply payloads ... cause=skipped:reply_operation_aborted`. The main Telegram
+session had accumulated since 09-06; the tool schema and gbrain's handshake
+text pushed it over the compaction budget; safeguard-mode compaction (quality
+audits, pre-compaction memory flush, multi-stage summaries) on a 27B at
+12 tok/s cannot finish inside the 300s the Telegram ingress allows a turn
+(`Channel ingress claim→adoption stalled ... after 300012ms; applying retry
+policy`), so the reply was aborted, the message re-queued, and the whole
+thing ran again. Forever, on every message. `/new` fixed it at once.
+
+Settled in the template, all reversible: `session.reset` idle at 240
+minutes (GBrain is the memory layer; chat history is not); compaction `mode:
+default`, `qualityGuard` off, `memoryFlush` off (memory-core is disabled; the
+flush writes to it), `notifyUser` on, `timeoutSeconds` 120 so a compaction
+that cannot finish fails fast and the reply still goes out. No config key
+governs the ingress 300s; the turn has to fit.
+
+**Found alongside: two automations nobody asked for.** `openclaw cron list`
+as brain: memory-core's "Memory Dreaming Promotion" daily at 03:00 — the
+plugin is disabled, its schedule survived — 20-30 minutes of inference per
+attempt, several attempts a night on 09-16, at the same hour as the backups;
+and a weekly "Skill collection review". Same class as the heartbeat.
+`cron.enabled: false` pauses both without deleting them.
+
+**Then the test passed.** After `/new` and the re-render: `hello` answered in
+seconds; "Search the brain for what it says about me" produced one search
+and a summary of the two synced files; "Search the brain for the Zanzibar
+kite festival" produced one search, an honest "nothing", no retry. gbrain's
+log shows exactly two searches, ~1.1s each.
+
+**Then the latency, which the owner asked about.** A tool turn took about
+two minutes. Measured, not guessed:
+
+- the search: ~1s. Not the problem.
+- the prompt: ~6,700 tokens before the two personal files are added, at
+  ~270 tok/s prompt processing = 25s per model call, two calls per tool
+  turn. OpenClaw's system prompt alone is 22,500 characters, most of it the
+  default workspace files it creates on first run — AGENTS.md, a first-run
+  BOOTSTRAP ritual, IDENTITY, TOOLS — and a "Memory" section about memory
+  *files*, which is why the model said "stored in my memory files" and did
+  not reach for the brain until told to. Captured by running the embedded
+  agent in the owner's account against a fake Ollama endpoint that records
+  the request; no personal file was read.
+- the prefix cache: works. Replaying OpenClaw's own captured requests, the
+  second call of a tool turn costs 6s of prompt time, not 36s. Live, it cost
+  36s, because gbrain embeds every query through Ollama (`nomic-embed-text`)
+  and `OLLAMA_MAX_LOADED_MODELS=1` evicted the 27B — and its cache — to load
+  the 274MB embedder, then reloaded 16GB for the answer. Now 2. Replayed with
+  an embedding call in between: the second call is 9.6s total.
+
+Left for the owner: the workspace boilerplate. Which files are in
+`/Users/brain/.openclaw/workspace/` and their sizes decide whether
+`install-agent-prompts.sh` should also remove the default ones, or install a
+short AGENTS.md that says the brain is the memory and `gbrain__search` is how
+to reach it. That is prompt content, so it is theirs.
+
+*Would reverse if:* compaction in `default` mode produces summaries bad
+enough to notice, in which case raise `timeoutSeconds` before touching
+`mode`; or memory pressure from the second resident model shows up in
+`health-check.sh` or the audio, in which case the embedder's keep-alive is the
+next knob, not the limit.

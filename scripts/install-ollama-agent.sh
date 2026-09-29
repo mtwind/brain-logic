@@ -31,7 +31,12 @@ LOG_DIR="${BRAIN_LOGIC_DIR}/logs"
 : "${BRAIN_CONTEXT_LENGTH:=16384}"
 : "${BRAIN_KV_CACHE_TYPE:=q8_0}"
 : "${BRAIN_FLASH_ATTENTION:=1}"
-: "${BRAIN_MAX_LOADED_MODELS:=1}"
+# 2, not 1. gbrain embeds every search query through Ollama (nomic-embed-text,
+# 274MB). With a limit of 1 that load EVICTS the 27B between the two model
+# calls of a tool turn -- its KV cache with it -- so the second call reloads
+# 16GB and re-reads an ~8,000-token prompt from scratch: 60s instead of ~10s,
+# measured 2026-09-18. Two resident models is the chat model plus the embedder.
+: "${BRAIN_MAX_LOADED_MODELS:=2}"
 # 5m, not 30m. The model is 17GB on a 24GB machine, and macOS refuses every
 # mlock -- including the 80KB buffer CoreAudio wires to start the speakers --
 # once free memory falls below vm.global_no_user_wire_amount (~5.9GB here).
@@ -66,6 +71,13 @@ run osascript -e 'quit app "Ollama"' 2>/dev/null || true
 [ "$DRY" -eq 0 ] && sleep 2
 run pkill -f "Ollama.app" 2>/dev/null || true
 [ "$DRY" -eq 0 ] && sleep 1
+
+# Unload our own agent BEFORE the port check. KeepAlive respawns it within a
+# second of the pkill above, and the guard below then refuses its own agent
+# as a stranger on the port (2026-09-18: a re-run to change one env var
+# refused itself and left the old plist in place).
+run launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
+[ "$DRY" -eq 0 ] && sleep 2
 
 # Whoever holds :11434 wins, and the loser respawns forever under KeepAlive.
 # That is precisely the state this script is being run to repair, so it refuses
