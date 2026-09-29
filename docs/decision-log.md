@@ -1556,3 +1556,29 @@ call at 3s, against 25-36s on 09-18. The prompt trim stays open work item 1.
 
 *Would reverse if:* gbrain gains a per-provider embed deadline or Ollama a
 per-model keep-alive, either of which would make the 45s unnecessary.
+
+## 2026-09-28 — The prompt trim: 7,200 tokens to 4,100, and the model searches unprompted
+
+Open work item 1 from the 09-18 handoff, done and measured. `prompts/AGENTS.md`
+(1,196 chars, in this repo: operating rules, not personal writing) replaces
+OpenClaw's 7.9KB default; `install-agent-prompts.sh` installs it and removes
+IDENTITY.md and DREAMS.md; `skipOptionalBootstrapFiles` keeps IDENTITY.md from
+coming back. SOUL.md and USER.md untouched.
+
+Measured on a fresh session (`/new`), from Ollama's slot log:
+
+| | before (09-18, 09-28) | after |
+|---|---|---|
+| system prompt, fresh session | ~7,200 tokens | 4,113 |
+| "tell me about my 5th birthday" | no search; "I have no access" | one search, unprompted; honest "nothing" |
+| that turn, end to end | -- | ~15s: 5s call, 1.2s search, 8s answer |
+
+The remaining 4,100 is OpenClaw's own sections (Tooling, Safety, Messaging,
+Documentation, Runtime...) plus the tool schema (~850) and the two personal
+files (~750). No config trims OpenClaw's sections short of `promptMode:
+minimal`, which is internal. Good enough: a memory question now fits in the
+time a person waits for "let me check".
+
+*Would reverse if:* the model stops searching when it should, in which case
+the Memory section of AGENTS.md is the first thing to reword; or OpenClaw
+starts recreating a default file, which `--verify-only` reports.

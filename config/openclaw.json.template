@@ -68,6 +68,8 @@
   "agents": {
     "defaults": {
       "heartbeat": { "every": "0m" },
+      "// skipOptionalBootstrapFiles": "install-agent-prompts.sh removes OpenClaw's default IDENTITY.md from the workspace (prompt text on every turn, nothing in it this assistant needs). This stops OpenClaw recreating it. SOUL.md and USER.md are installed by the same script and must NOT be listed here.",
+      "skipOptionalBootstrapFiles": ["IDENTITY.md"],
       "// compaction": "For when it runs anyway. safeguard mode with quality audits and a pre-compaction memory flush is several serial model turns; at 12 tok/s on the 27B that cannot finish inside the 5 minutes the Telegram ingress allows a turn, and the reply is aborted. default mode, no audits, no flush (memory-core is disabled; the flush writes to it), a notice to the user instead of ten minutes of 'typing', and a 120s window so a compaction that cannot finish fails fast and the reply still goes out.",
       "compaction": {
         "mode": "default",

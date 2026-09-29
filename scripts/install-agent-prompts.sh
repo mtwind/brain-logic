@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 #
-# Installs SOUL.md and USER.md into the sandboxed agent account.
+# Installs SOUL.md, USER.md and AGENTS.md into the sandboxed agent account,
+# and removes the workspace files OpenClaw created by default.
+#
+# AGENTS.md is different from the other two: it is operating rules, not
+# personal writing, so it lives in THIS repo (prompts/AGENTS.md) and ships to
+# the public mirror. OpenClaw's own default AGENTS.md (7.9KB) plus IDENTITY.md
+# and DREAMS.md were ~3,000 tokens of every prompt, and the default's "Memory"
+# section told the model its memory was files -- so it did not reach for the
+# brain unless asked (decision log, 2026-09-18 and 09-28). Those defaults are
+# removed here; OpenClaw only recreates them for a workspace that has none,
+# and the config template tells it not to recreate IDENTITY.md.
 #
 # The problem this solves: OpenClaw reads these from the agent's workspace at
 # the start of EVERY session, and the agent's home is /Users/brain, which
@@ -47,6 +57,13 @@ SRC_DIR="${BRAIN_PROMPTS_DIR:-${BRAIN_DIR:?BRAIN_DIR is unset; config/paths.env 
 # and nothing anywhere reports that. Enforced here instead.
 USER_MAX_CHARS=4000
 SOUL_MAX_CHARS=20000
+AGENTS_MAX_CHARS=1500
+AGENTS_SRC="${REPO}/prompts/AGENTS.md"
+
+# OpenClaw's default workspace files. Each one is prompt text on every turn.
+# BOOTSTRAP.md, TOOLS.md and HEARTBEAT.md are listed in case a future OpenClaw
+# first-run creates them; today only the first two exist here.
+REMOVE_DEFAULTS=(IDENTITY.md DREAMS.md BOOTSTRAP.md TOOLS.md HEARTBEAT.md)
 
 DRY=0
 MODE="install"
@@ -89,12 +106,18 @@ if [ "$MODE" = "verify" ]; then
   echo "==> ${WORKSPACE}"
   installed_state SOUL.md
   installed_state USER.md
+  installed_state AGENTS.md
+  for f in "${REMOVE_DEFAULTS[@]}"; do
+    if sudo -n test -f "${WORKSPACE}/${f}" 2>/dev/null; then
+      echo "  ${f}: OpenClaw default still present -- re-run the installer to remove it"
+    fi
+  done
   exit 0
 fi
 
 if [ "$MODE" = "uninstall" ]; then
   sudo -v || { echo "needs sudo: the files live in ${AGENT_HOME}" >&2; exit 1; }
-  for f in SOUL.md USER.md; do
+  for f in SOUL.md USER.md AGENTS.md; do
     run sudo rm -f "${WORKSPACE}/${f}"
     echo "  removed ${WORKSPACE}/${f}"
   done
@@ -123,8 +146,11 @@ MSG
 HAVE_USER=0
 [ -f "${SRC_DIR}/USER.md" ] && HAVE_USER=1
 
+[ -f "$AGENTS_SRC" ] || { echo "missing ${AGENTS_SRC} -- it is part of this repo" >&2; exit 1; }
+
 echo "==> sources in ${SRC_DIR}"
 echo "    SOUL.md   $(describe "${SRC_DIR}/SOUL.md")"
+echo "    AGENTS.md $(describe "$AGENTS_SRC")  (from ${AGENTS_SRC#"$REPO"/})"
 [ "$HAVE_USER" -eq 1 ] && echo "    USER.md   $(describe "${SRC_DIR}/USER.md")" \
                        || echo "    USER.md   absent (optional; the agent gets no user context)"
 
@@ -161,6 +187,12 @@ MSG
   fi
 fi
 
+agents_chars=$({ LC_ALL=en_US.UTF-8 wc -m < "$AGENTS_SRC" 2>/dev/null || echo 0; } | tr -d ' ')
+if [ "$agents_chars" -gt "$AGENTS_MAX_CHARS" ]; then
+  echo "prompts/AGENTS.md is ${agents_chars} chars, over its ${AGENTS_MAX_CHARS} budget. It is read on every turn; cut it." >&2
+  exit 1
+fi
+
 if [ "$DRY" -eq 0 ]; then
   sudo -v || {
     echo "This script needs sudo: it writes into ${AGENT_HOME}." >&2
@@ -187,13 +219,28 @@ install_one() {
 install_one SOUL.md
 [ "$HAVE_USER" -eq 1 ] && install_one USER.md
 
+echo "==> AGENTS.md -> ${WORKSPACE}/AGENTS.md"
+run sudo cp "$AGENTS_SRC" "${WORKSPACE}/AGENTS.md"
+run sudo chown "${AGENT_USER}" "${WORKSPACE}/AGENTS.md"
+run sudo chmod 600 "${WORKSPACE}/AGENTS.md"
+
+echo "==> removing OpenClaw's default workspace files"
+for f in "${REMOVE_DEFAULTS[@]}"; do
+  if [ "$DRY" -eq 1 ]; then
+    printf '  [dry-run] sudo rm -f %s (if present)\n' "${WORKSPACE}/${f}"
+  elif sudo test -f "${WORKSPACE}/${f}"; then
+    sudo rm -f "${WORKSPACE}/${f}"
+    echo "    removed ${f}"
+  fi
+done
+
 [ "$DRY" -eq 1 ] && { echo; echo "  [dry-run] nothing was written."; exit 0; }
 
 # ---- verification, including the boundary that made this script necessary ----
 
 rc=0
 echo "==> ${AGENT_USER} can read what was installed (it must)"
-for f in SOUL.md $([ "$HAVE_USER" -eq 1 ] && echo USER.md); do
+for f in SOUL.md AGENTS.md $([ "$HAVE_USER" -eq 1 ] && echo USER.md); do
   if sudo -u "$AGENT_USER" test -r "${WORKSPACE}/${f}"; then
     echo "    ok: ${f}"
   else
