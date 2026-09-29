@@ -1516,3 +1516,43 @@ enough to notice, in which case raise `timeoutSeconds` before touching
 `mode`; or memory pressure from the second resident model shows up in
 `health-check.sh` or the audio, in which case the embedder's keep-alive is the
 next knob, not the limit.
+
+## 2026-09-28 — health-check.sh died silently after the Ollama row for ten days
+
+The 09-18 change that reports the loaded-model limit ended the function with
+`[ "$maxm" = "1" ] && detail ...`. When the limit is 2, which is the fixed
+state, the test is false, the function returns 1, and `set -e` ends the script
+after the second row with exit 1 and no message. Found on 09-28 when the check
+was run for the first time since. A fifth instance of the landmine in
+`CLAUDE.md`, in a new shape: a trailing `&&` as a function's last command.
+Now an `if`. *Rule added to the list:* a function under `set -e` must not end
+on a conditional list.
+
+## 2026-09-28 — Every first search after a quiet spell was silently keyword-only
+
+Three searches from Telegram today took ~8s each; gbrain logged them as
+success. Ollama's log told the rest: each search's embedding call returned
+499 (client closed) at 6s, was retried, failed again at 2s, and each attempt
+aborted a half-finished load of `nomic-embed-text` — "client connection
+closed before llama-server finished loading". The search then fell back to
+keyword matching, which on a two-page brain looks identical from outside.
+
+The cause is two defaults meeting: Ollama evicts the embedder after 5 idle
+minutes (the same keep-alive that protects audio), and under this machine's
+memory pressure it takes 12-17s to load cold; gbrain bounds the query-time
+embed at 6s (`GBRAIN_QUERY_EMBED_TIMEOUT_MS`, built for a stalled cloud
+provider). The wrapper now sets it to 45s — inside the 60s request timeout
+the gateway gives this server — so the load finishes and the vector arm runs.
+Warm, an embed is 20ms. Verified: embedder evicted, search returns with
+`vector_enabled: true, degraded: []`. `health-check.sh` now says whether the
+embedder is resident, as a detail, never a score.
+
+*Correction to the 09-18 numbers:* the "1,127-token prompt" read this evening
+was the uncached remainder that llama-server reports, not the prompt. The
+turn's total was ~7,200 tokens, matching 09-18; the workspace is unchanged
+(AGENTS.md 7.9KB, IDENTITY.md, DREAMS.md, SOUL.md, USER.md, dated 09-06/07).
+What the number does show is the prefix cache working: ~600 new tokens per
+call at 3s, against 25-36s on 09-18. The prompt trim stays open work item 1.
+
+*Would reverse if:* gbrain gains a per-provider embed deadline or Ollama a
+per-model keep-alive, either of which would make the 45s unnecessary.

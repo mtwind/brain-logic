@@ -227,7 +227,12 @@ check_ollama_service() {
   result ollama-svc OK "agent owns :${OLLAMA_PORT} (pid ${agent_pid})"
   detail "live env: context ${ctx:-unset}, keep-alive ${keep:-unset}, max loaded ${maxm:-unset}"
   # 1 means every gbrain search evicts the chat model to load the embedder.
-  [ "${maxm:-}" = "1" ] && detail "max loaded 1: each search reloads the 27B and re-reads the prompt -- bash scripts/install-ollama-agent.sh"
+  # An if, not `[ ] && detail`: as the LAST command of the function a false
+  # test makes the function return 1, and under set -e that ends the script
+  # silently after this row. It did, for ten days (2026-09-18 to 09-28).
+  if [ "${maxm:-}" = "1" ]; then
+    detail "max loaded 1: each search reloads the 27B and re-reads the prompt -- bash scripts/install-ollama-agent.sh"
+  fi
 }
 
 # ---- Postgres: GBrain's store ----
@@ -331,7 +336,17 @@ check_gbrain_mcp() {
   # Postgres is not.
   body=$({ curl -sS -m 5 "http://127.0.0.1:${port}/health" 2>/dev/null || true; })
   case "$body" in
-    *'"status":"ok"'*)  result gbrain-mcp OK "agent owns 127.0.0.1:${port} (pid ${agent_pid}), db ok" ;;
+    *'"status":"ok"'*)
+      result gbrain-mcp OK "agent owns 127.0.0.1:${port} (pid ${agent_pid}), db ok"
+      # Informational: the embedder is evicted after 5 idle minutes and takes
+      # 12-17s to come back, which the first search after a quiet spell pays.
+      # Read, never scored -- an idle embedder is the expected state.
+      if { curl -sS -m 3 "http://127.0.0.1:${OLLAMA_PORT}/api/ps" 2>/dev/null || true; } | grep -q 'nomic-embed'; then
+        detail "embedder resident: first search fast"
+      else
+        detail "embedder idle: first search pays a ~15s load"
+      fi
+      ;;
     *unreachable*|*degraded*|*unhealthy*)
       result gbrain-mcp DOWN "up on 127.0.0.1:${port} but not healthy: ${body}" ;;
     *) result gbrain-mcp UNKNOWN "answering HTTP ${HTTP_CODE} on /health: ${body:-empty body}" ;;

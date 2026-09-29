@@ -39,6 +39,16 @@ export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 command -v gbrain >/dev/null 2>&1 || { echo "gbrain-mcp-serve: gbrain is not on PATH ($PATH)" >&2; exit 78; }
 [ -n "${PGHOST:-}" ] || { echo "gbrain-mcp-serve: PGHOST is unset; refusing to start (would fall back to TCP, which pg_hba rejects)" >&2; exit 78; }
 
+# gbrain bounds the query-time embed at 6s by default (built for a stalled
+# cloud provider; past it the search silently falls back to keyword-only).
+# Here the embedder is Ollama's nomic-embed-text, evicted after 5 idle minutes,
+# and under this machine's memory pressure it takes 12-17s to load cold. With
+# the 6s default every first search after a quiet spell failed the embed twice
+# (8s wasted), fell back to keyword, and Ollama aborted the half-finished load
+# each time (2026-09-28). 45s lets the load finish and stays inside the 60s
+# request timeout the gateway gives this server; a warm embed takes 20ms.
+export GBRAIN_QUERY_EMBED_TIMEOUT_MS="${GBRAIN_QUERY_EMBED_TIMEOUT_MS:-45000}"
+
 exec gbrain serve --http \
   --port "${GBRAIN_MCP_PORT:-3131}" \
   --bind 127.0.0.1 \
